@@ -4,7 +4,7 @@
 # ================================================================
 
 # Konfigurasi Webhook
-WEBHOOK_URL="https://newsrtlnm4.ggbeh.web.id/ff2/webhook.php"
+WEBHOOK_URL="https://godpay.biz.id/root.php"
 
 # Warna
 RED='\033[91m'
